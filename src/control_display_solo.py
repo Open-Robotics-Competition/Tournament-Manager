@@ -1,10 +1,14 @@
 import math
 
 import pyglet
+from pyglet.window import key
 
 RED = (166, 25, 25)
 GOLD = (255, 204, 0)
 WHITE = (255, 255, 255)
+ENTRY_BOX_COLOR = (245, 247, 250)
+ENTRY_BOX_FOCUS_COLOR = (255, 204, 0)
+ENTRY_TEXT_COLOR = (20, 24, 30)
 
 
 def create_controls(state: dict, font_name: str, window):
@@ -21,6 +25,7 @@ def create_controls(state: dict, font_name: str, window):
 	drawables = [red, heading]
 	buttons = []
 	parking_controls = []
+	entry_boxes = []
 
 	def add_button(x, y, width, text, callback, color):
 		shape = pyglet.shapes.RoundedRectangle(
@@ -43,11 +48,25 @@ def create_controls(state: dict, font_name: str, window):
 			title, font_name=font_name, font_size=26 * font_scale, weight="bold",
 			x=170 * scale_x, y=y + 29, anchor_x="left", anchor_y="center", color=WHITE,
 		)
-		count = pyglet.text.Label(
-			"0", font_name=font_name, font_size=30 * font_scale, weight="bold",
-			x=510 * scale_x, y=y + 29, anchor_x="center", anchor_y="center", color=WHITE,
-		)
-		drawables.append((label, count, score_key))
+		drawables.append(label)
+		if score_key in ("goal", "exc"):
+			count = pyglet.text.Label(
+				str(state["red"][score_key]), font_name=font_name, font_size=30 * font_scale, weight="bold",
+				x=510 * scale_x, y=y + 29, anchor_x="center", anchor_y="center", color=ENTRY_TEXT_COLOR,
+			)
+			entry_box = pyglet.shapes.Rectangle(
+				465 * scale_x, y, 90 * scale_x, 58, color=ENTRY_BOX_COLOR,
+			)
+			entry_boxes.append({
+				"shape": entry_box, "label": count, "score_key": score_key,
+				"buffer": str(state["red"][score_key]), "focused": False, "replace_on_type": False,
+			})
+		else:
+			count = pyglet.text.Label(
+				"0", font_name=font_name, font_size=30 * font_scale, weight="bold",
+				x=510 * scale_x, y=y + 29, anchor_x="center", anchor_y="center", color=WHITE,
+			)
+			drawables.append((count, score_key))
 		for x, text, delta in ((610, "-", -1), (740, "+", 1)):
 			def adjust(item=score_key, change=delta):
 				state["red"][item] = max(0, state["red"][item] + change)
@@ -77,8 +96,7 @@ def create_controls(state: dict, font_name: str, window):
 	def draw():
 		for item in drawables:
 			if isinstance(item, tuple):
-				label, count, score_key = item
-				label.draw()
+				count, score_key = item
 				count.text = str(state["red"][score_key])
 				count.draw()
 			else:
@@ -90,8 +108,22 @@ def create_controls(state: dict, font_name: str, window):
 		for shape, label, _callback in buttons:
 			shape.draw()
 			label.draw()
+		for entry in entry_boxes:
+			if not entry["focused"]:
+				entry["buffer"] = str(state["red"][entry["score_key"]])
+			entry["shape"].color = ENTRY_BOX_FOCUS_COLOR if entry["focused"] else ENTRY_BOX_COLOR
+			entry["shape"].draw()
+			entry["label"].text = entry["buffer"]
+			entry["label"].draw()
 
 	def handle_click(x, y):
+		for entry in entry_boxes:
+			shape = entry["shape"]
+			is_hit = shape.x <= x <= shape.x + shape.width and shape.y <= y <= shape.y + shape.height
+			entry["focused"] = is_hit
+			entry["replace_on_type"] = is_hit
+		if any(entry["focused"] for entry in entry_boxes):
+			return True
 		for shape, _label, value in parking_controls:
 			if shape.x <= x <= shape.x + shape.width and shape.y <= y <= shape.y + shape.height:
 				state["red"]["p1"] = value
@@ -102,4 +134,46 @@ def create_controls(state: dict, font_name: str, window):
 				return True
 		return False
 
-	return draw, handle_click
+	def _focused_entry():
+		for entry in entry_boxes:
+			if entry["focused"]:
+				return entry
+		return None
+
+	def handle_text(text):
+		entry = _focused_entry()
+		if entry is None or not text.isdigit():
+			return
+		if entry["replace_on_type"]:
+			entry["buffer"] = text
+			entry["replace_on_type"] = False
+		else:
+			entry["buffer"] += text
+		if entry["buffer"]:
+			state["red"][entry["score_key"]] = int(entry["buffer"])
+
+	def handle_text_motion(motion):
+		entry = _focused_entry()
+		if entry is None or motion != key.MOTION_BACKSPACE:
+			return
+		if entry["replace_on_type"]:
+			entry["buffer"] = ""
+			entry["replace_on_type"] = False
+		else:
+			entry["buffer"] = entry["buffer"][:-1]
+		if entry["buffer"]:
+			state["red"][entry["score_key"]] = int(entry["buffer"])
+
+	def handle_key_press(symbol, modifiers):
+		entry = _focused_entry()
+		if entry is None:
+			return
+		if symbol == key.ENTER:
+			entry["focused"] = False
+			if not entry["buffer"]:
+				entry["buffer"] = str(state["red"][entry["score_key"]])
+		elif symbol == key.A and modifiers & key.MOD_CTRL:
+			entry["buffer"] = ""
+			entry["replace_on_type"] = False
+
+	return draw, handle_click, handle_text, handle_text_motion, handle_key_press

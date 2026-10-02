@@ -1,5 +1,10 @@
 import time
 
+try:
+	from . import sound_effects
+except ImportError:
+	import sound_effects
+
 GOAL_RP_THRESHOLD = 150
 PARK_RP_THRESHOLD = 40
 
@@ -66,6 +71,7 @@ def timer_text(state: dict, duration: int) -> str:
 		return "0:00"
 
 	remaining = seconds_remaining(state["timer_started_at"], duration)
+	sound_effects.on_timer_tick(state, remaining)
 	if remaining == 0:
 		state["timer_state"] = 2
 		return "0:00"

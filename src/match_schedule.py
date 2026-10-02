@@ -66,11 +66,12 @@ def create_controls(state: dict, font_name: str, window, on_run=None, on_edit=No
 	rows = []
 	last_schedule_signature = None
 
-	def team_name(team_id):
+	def team_name(team_id, surrogate_ids=()):
+		prefix = "*" if team_id in surrogate_ids else ""
 		for team in state["teams"]:
 			if team.eventID == team_id:
-				return team.name
-		return f"Unknown team {team_id}"
+				return f"{prefix}{team.name}"
+		return f"{prefix}Unknown team {team_id}"
 
 	def refresh_rows():
 		nonlocal rows, last_schedule_signature
@@ -81,6 +82,7 @@ def create_controls(state: dict, font_name: str, window, on_run=None, on_edit=No
 				match.red_team_1, match.red_team_2,
 				match.blue_team_1, match.blue_team_2,
 				match.red_score, match.blue_score, match.played,
+				tuple(match.surrogate_team_ids),
 			)
 			for match in schedule
 		)
@@ -89,6 +91,7 @@ def create_controls(state: dict, font_name: str, window, on_run=None, on_edit=No
 		last_schedule_signature = signature
 		rows = []
 		for index, match in enumerate(schedule):
+			surrogate_ids = set(match.surrogate_team_ids)
 			y = viewport_top - index * row_height - row_height
 			background = pyglet.shapes.Rectangle(
 				50 * scale_x, y, 800 * scale_x, row_height - 5,
@@ -100,13 +103,13 @@ def create_controls(state: dict, font_name: str, window, on_run=None, on_edit=No
 				anchor_x="left", anchor_y="center", color=WHITE,
 			)
 			red_names = pyglet.text.Label(
-				f"{team_name(match.red_team_1)}\n{team_name(match.red_team_2)}",
+				f"{team_name(match.red_team_1, surrogate_ids)}\n{team_name(match.red_team_2, surrogate_ids)}",
 				font_name=font_name, font_size=17, x=145 * scale_x, y=y + 36,
 				width=220 * scale_x, multiline=True, align="left",
 				anchor_x="left", anchor_y="center", color=WHITE,
 			)
 			blue_names = pyglet.text.Label(
-				f"{team_name(match.blue_team_1)}\n{team_name(match.blue_team_2)}",
+				f"{team_name(match.blue_team_1, surrogate_ids)}\n{team_name(match.blue_team_2, surrogate_ids)}",
 				font_name=font_name, font_size=17, x=390 * scale_x, y=y + 36,
 				width=220 * scale_x, multiline=True, align="left",
 				anchor_x="left", anchor_y="center", color=WHITE,
@@ -293,11 +296,12 @@ def create_field_renderer(window, state: dict, font_name: str):
 	last_time = None
 	scroll_speed = height * 0.03  # pixels per second
 
-	def team_name(team_id):
+	def team_name(team_id, surrogate_ids=()):
+		prefix = "*" if team_id in surrogate_ids else ""
 		for team in state["teams"]:
 			if team.eventID == team_id:
-				return team.name
-		return f"Unknown team {team_id}"
+				return f"{prefix}{team.name}"
+		return f"{prefix}Unknown team {team_id}"
 
 	def refresh_rows():
 		nonlocal rows, last_schedule_signature
@@ -308,6 +312,7 @@ def create_field_renderer(window, state: dict, font_name: str):
 				match.red_team_1, match.red_team_2,
 				match.blue_team_1, match.blue_team_2,
 				match.red_score, match.blue_score, match.played,
+				tuple(match.surrogate_team_ids),
 			)
 			for match in schedule
 		)
@@ -316,6 +321,7 @@ def create_field_renderer(window, state: dict, font_name: str):
 		last_schedule_signature = signature
 		rows = []
 		for index, match in enumerate(schedule):
+			surrogate_ids = set(match.surrogate_team_ids)
 			row_top = viewport_top - index * row_height
 			background_row = pyglet.shapes.Rectangle(
 				width * 0.02, row_top - row_height + row_height * 0.08, divider_x - width * 0.04,
@@ -327,13 +333,13 @@ def create_field_renderer(window, state: dict, font_name: str):
 				anchor_x="left", anchor_y="center", color=WHITE,
 			)
 			red_names = pyglet.text.Label(
-				f"{team_name(match.red_team_1)}\n{team_name(match.red_team_2)}",
+				f"{team_name(match.red_team_1, surrogate_ids)}\n{team_name(match.red_team_2, surrogate_ids)}",
 				font_name=font_name, font_size=int(18 * scale_y), x=column_red_x,
 				y=row_top - row_height / 2, width=column_blue_x - column_red_x - 10 * scale_x,
 				multiline=True, align="left", anchor_x="left", anchor_y="center", color=WHITE,
 			)
 			blue_names = pyglet.text.Label(
-				f"{team_name(match.blue_team_1)}\n{team_name(match.blue_team_2)}",
+				f"{team_name(match.blue_team_1, surrogate_ids)}\n{team_name(match.blue_team_2, surrogate_ids)}",
 				font_name=font_name, font_size=int(18 * scale_y), x=column_blue_x,
 				y=row_top - row_height / 2, width=column_score_x - column_blue_x - 10 * scale_x,
 				multiline=True, align="left", anchor_x="left", anchor_y="center", color=WHITE,

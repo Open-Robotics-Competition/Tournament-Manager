@@ -14,9 +14,13 @@ class RoundRobinError(ValueError):
 	"""Raised when the team list cannot produce a valid round-robin schedule."""
 
 
-def generate_round_robin(teams, rng: random.Random | None = None) -> list[Match]:
+def generate_round_robin(
+	teams, batch_count: int = 1, rng: random.Random | None = None
+) -> list[Match]:
 	if rng is None:
 		rng = random.SystemRandom()
+	if batch_count < 1:
+		raise RoundRobinError("Batch count must be at least 1.")
 	team_ids = [team.eventID for team in teams]
 	if len(team_ids) < 4:
 		raise RoundRobinError("Round-robin generation requires at least four teams.")
@@ -24,21 +28,22 @@ def generate_round_robin(teams, rng: random.Random | None = None) -> list[Match]
 		raise RoundRobinError("Every team must have a unique eventID.")
 
 	schedule = []
-	alliances = list(combinations(team_ids, 2))
-	paired_alliances, unmatched_alliances = _pair_disjoint_alliances(alliances, rng)
-	for first_alliance, second_alliance in paired_alliances:
-		schedule.append(_create_match(
-			first_alliance, second_alliance, 0, rng
-		))
+	for _ in range(batch_count):
+		alliances = list(combinations(team_ids, 2))
+		paired_alliances, unmatched_alliances = _pair_disjoint_alliances(alliances, rng)
+		for first_alliance, second_alliance in paired_alliances:
+			schedule.append(_create_match(
+				first_alliance, second_alliance, 0, rng
+			))
 
-	if unmatched_alliances:
-		remaining_alliance = unmatched_alliances[0]
-		surrogate_candidates = [team_id for team_id in team_ids if team_id not in remaining_alliance]
-		first_surrogate_alliance = rng.sample(surrogate_candidates, 2)
-		schedule.append(_create_match(
-			remaining_alliance, first_surrogate_alliance, 0, rng,
-			first_surrogate_alliance,
-		))
+		if unmatched_alliances:
+			remaining_alliance = unmatched_alliances[0]
+			surrogate_candidates = [team_id for team_id in team_ids if team_id not in remaining_alliance]
+			first_surrogate_alliance = rng.sample(surrogate_candidates, 2)
+			schedule.append(_create_match(
+				remaining_alliance, first_surrogate_alliance, 0, rng,
+				first_surrogate_alliance,
+			))
 
 	_assign_batches(schedule)
 	for match_number, match in enumerate(schedule, start=1):

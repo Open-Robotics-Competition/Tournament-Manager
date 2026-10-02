@@ -23,6 +23,7 @@ try:
 		schedule_io,
 		scoring_common,
 		serialInterface,
+		sound_effects,
 	)
 except ImportError:
 	import control_display_match
@@ -42,6 +43,7 @@ except ImportError:
 	import schedule_io
 	import scoring_common
 	import serialInterface
+	import sound_effects
 
 
 Font.texture_width = 1024
@@ -59,11 +61,42 @@ BACKGROUND = (24, 27, 32)
 TAB_INACTIVE = (65, 70, 78)
 APP_ICON = pyglet.image.load(str(Path(__file__).resolve().parents[1] / "resources" / "liftoff_logo.png"))
 
+# Weights for picking the best of several generated schedule iterations: lower
+# (back_to_back * X) + (repeat_partners * Y) + (repeat_opponents * Z) wins.
+SCHEDULE_BACK_TO_BACK_WEIGHT = 0.25
+SCHEDULE_REPEAT_PARTNER_WEIGHT = 2.0
+SCHEDULE_REPEAT_OPPONENT_WEIGHT = 1.5
+
 
 def build_bracket_topology(state: dict, alliance_count: int):
 	if state["bracket_type"] == "double":
 		return elimination_bracket_double.build_topology(alliance_count)
 	return elimination_bracket_single.build_topology(alliance_count)
+
+
+def select_best_schedule(generate_once, iteration_count: int, teams):
+	"""Generates `iteration_count` candidate schedules and keeps the one with the lowest
+	weighted (back-to-back, repeat-partner, repeat-opponent) score."""
+	best_schedule = None
+	best_score = None
+	last_error = None
+	for _ in range(max(1, iteration_count)):
+		try:
+			schedule = generate_once()
+		except ValueError as error:
+			last_error = error
+			continue
+		statistics = analyze_schedule.analyze_schedule(schedule, teams)
+		score = (
+			SCHEDULE_BACK_TO_BACK_WEIGHT * statistics["back_to_back_cases"]
+			+ SCHEDULE_REPEAT_PARTNER_WEIGHT * statistics["repeat_partner_cases"]
+			+ SCHEDULE_REPEAT_OPPONENT_WEIGHT * statistics["repeat_opponent_cases"]
+		)
+		if best_score is None or score < best_score:
+			best_schedule, best_score = schedule, score
+	if best_schedule is None:
+		raise last_error
+	return best_schedule
 
 
 def create_field_display(state: dict):
@@ -339,11 +372,14 @@ def create_control_display(state: dict, field_window):
 	)
 	event_results_controls = create_event_results_controls(state, FONT_NAME, window)
 
-	def generate_round_robin_schedule():
+	def generate_round_robin_schedule(batch_count: int, iteration_count: int):
 		if state["schedule_finalized"]:
 			return
 		try:
-			schedule = generator_round_robin.generate_round_robin(state["teams"])
+			schedule = select_best_schedule(
+				lambda: generator_round_robin.generate_round_robin(state["teams"], batch_count),
+				iteration_count, state["teams"],
+			)
 			generator_round_robin.write_schedule(
 				schedule, tournament_setup.tournament_data_path
 			)
@@ -354,16 +390,19 @@ def create_control_display(state: dict, field_window):
 		state["schedule"] = schedule
 		statistics = analyze_schedule.analyze_schedule(schedule, state["teams"])
 		state["schedule_status"] = (
-			f"GENERATED ROUND-ROBIN WITH {len(schedule)} MATCHES\n"
+			f"GENERATED ROUND-ROBIN WITH {len(schedule)} MATCHES (BEST OF {iteration_count})\n"
 			f"{analyze_schedule.format_schedule_statistics(statistics, state['teams'])}"
 		)
 		window.invalid = True
 
-	def generate_standard_schedule(batch_count: int):
+	def generate_standard_schedule(batch_count: int, iteration_count: int):
 		if state["schedule_finalized"]:
 			return
 		try:
-			schedule = generator_standard.generate_standard(state["teams"], batch_count)
+			schedule = select_best_schedule(
+				lambda: generator_standard.generate_standard(state["teams"], batch_count),
+				iteration_count, state["teams"],
+			)
 			generator_standard.write_schedule(
 				schedule, tournament_setup.tournament_data_path
 			)
@@ -374,7 +413,7 @@ def create_control_display(state: dict, field_window):
 		state["schedule"] = schedule
 		statistics = analyze_schedule.analyze_schedule(schedule, state["teams"])
 		state["schedule_status"] = (
-			f"GENERATED STANDARD WITH {len(schedule)} MATCHES\n"
+			f"GENERATED STANDARD WITH {len(schedule)} MATCHES (BEST OF {iteration_count})\n"
 			f"{analyze_schedule.format_schedule_statistics(statistics, state['teams'])}"
 		)
 		window.invalid = True
@@ -385,6 +424,12 @@ def create_control_display(state: dict, field_window):
 			window.invalid = True
 			return
 		state["schedule_finalized"] = True
+		try:
+			schedule_io.write_human_readable_schedule(
+				state["schedule"], state["teams"], tournament_setup.tournament_data_path
+			)
+		except OSError as error:
+			print(f"Could not write human-readable schedule: {error}")
 		state["active_mode"] = "MATCH SCHEDULE"
 		window.invalid = True
 		field_window.invalid = True
@@ -467,6 +512,7 @@ def create_control_display(state: dict, field_window):
 		reset_controller_goals()
 		mode_state["timer_state"] = 1
 		mode_state["timer_started_at"] = scoring_common.start_timestamp()
+		sound_effects.start_new_timer(mode_state)
 
 	def reset_mode():
 		mode_name = state["active_mode"] if state["active_mode"] in state["modes"] else "MATCH"
@@ -747,6 +793,9 @@ def create_control_display(state: dict, field_window):
 		elif state["active_mode"] == "GENERATE SCHEDULE":
 			schedule_controls[2](text)
 			window.invalid = True
+		elif state["active_mode"] in mode_controls:
+			mode_controls[state["active_mode"]][2](text)
+			window.invalid = True
 
 	@window.event
 	def on_text_motion(motion):
@@ -756,6 +805,9 @@ def create_control_display(state: dict, field_window):
 		elif state["active_mode"] == "GENERATE SCHEDULE":
 			schedule_controls[3](motion)
 			window.invalid = True
+		elif state["active_mode"] in mode_controls:
+			mode_controls[state["active_mode"]][3](motion)
+			window.invalid = True
 
 	@window.event
 	def on_key_press(symbol, modifiers):
@@ -764,6 +816,9 @@ def create_control_display(state: dict, field_window):
 			window.invalid = True
 		elif state["active_mode"] == "GENERATE SCHEDULE":
 			schedule_controls[4](symbol, modifiers)
+			window.invalid = True
+		elif state["active_mode"] in mode_controls:
+			mode_controls[state["active_mode"]][4](symbol, modifiers)
 			window.invalid = True
 
 	@window.event
